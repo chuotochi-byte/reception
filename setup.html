@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>Dropbox 連携設定</title>
+  <style>
+    body { font-family: sans-serif; max-width: 600px; margin: 60px auto; padding: 20px; }
+    h1 { font-size: 22px; }
+    #token-box { width: 100%; height: 80px; font-size: 12px; margin-top: 10px; }
+    .btn { background: #0061fe; color: #fff; border: none; padding: 14px 28px;
+           font-size: 16px; border-radius: 6px; cursor: pointer; margin-top: 20px; }
+    .success { color: green; font-weight: bold; margin-top: 16px; }
+    .error   { color: red; margin-top: 16px; }
+  </style>
+</head>
+<body>
+
+<h1>Dropbox 長期トークン取得</h1>
+
+<div id="main">
+  <p>下のボタンをクリックするとDropboxの認証画面が開きます。</p>
+  <button class="btn" onclick="authorize()">Dropboxと連携する</button>
+</div>
+
+<div id="result" style="display:none">
+  <p class="success">✓ 取得成功！下のトークンをコピーしてClaudeに貼り付けてください。</p>
+  <textarea id="token-box" readonly></textarea>
+  <br>
+  <button class="btn" onclick="copyToken()">コピーする</button>
+</div>
+
+<div id="error" style="display:none">
+  <p class="error">エラーが発生しました。もう一度試してください。</p>
+</div>
+
+<script>
+  const APP_KEY = 'go6xm0yq8trg9pu';
+  const REDIRECT = location.origin + '/setup.html';
+
+  function authorize() {
+    const url = 'https://www.dropbox.com/oauth2/authorize'
+      + '?client_id=' + APP_KEY
+      + '&response_type=token'
+      + '&token_access_type=legacy'
+      + '&redirect_uri=' + encodeURIComponent(REDIRECT);
+    location.href = url;
+  }
+
+  function copyToken() {
+    const box = document.getElementById('token-box');
+    box.select();
+    document.execCommand('copy');
+    alert('コピーしました');
+  }
+
+  // URLハッシュからトークンを取得
+  const hash = location.hash;
+  if (hash && hash.includes('access_token')) {
+    const params = new URLSearchParams(hash.substring(1));
+    const token = params.get('access_token');
+    if (token) {
+      document.getElementById('main').style.display = 'none';
+      document.getElementById('result').style.display = 'block';
+      document.getElementById('token-box').value = token;
+    } else {
+      document.getElementById('error').style.display = 'block';
+    }
+  }
+</script>
+</body>
+</html>
