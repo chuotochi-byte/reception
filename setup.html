@@ -35,7 +35,8 @@
 
 <script>
   const APP_KEY = 'go6xm0yq8trg9pu';
-  const REDIRECT = location.origin + '/setup.html';
+  const REDIRECT = location.origin + location.pathname;
+
 
   function authorize() {
     const url = 'https://www.dropbox.com/oauth2/authorize'
