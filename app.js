@@ -219,7 +219,10 @@ function onDoorOpened() {
   }, CONFIG.ANNOUNCE_DELAY_SEC * 1000);
 }
 
-document.getElementById('door-trigger').addEventListener('click', onDoorOpened);
+const _trigger = document.getElementById('door-trigger');
+_trigger.addEventListener('click', onDoorOpened);
+_trigger.addEventListener('touchstart', (e) => { e.preventDefault(); onDoorOpened(); }, { passive: false });
+
 
 // ============================================================
 // 画面フロー
