@@ -219,9 +219,9 @@ function onDoorOpened() {
   }, CONFIG.ANNOUNCE_DELAY_SEC * 1000);
 }
 
-const _trigger = document.getElementById('door-trigger');
-_trigger.addEventListener('click', onDoorOpened);
-_trigger.addEventListener('touchstart', (e) => { e.preventDefault(); onDoorOpened(); }, { passive: false });
+
+document.getElementById('door-trigger').addEventListener('click', onDoorOpened);
+document.getElementById('screen-idle').addEventListener('touchstart', (e) => { e.preventDefault(); onDoorOpened(); }, { passive: false });
 
 
 // ============================================================
