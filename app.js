@@ -1,4 +1,4 @@
-try { emailjs.init({ publicKey: CONFIG.EMAILJS_PUBLIC_KEY }); } catch(e) {}
+
 
 
 const STATES = {
