@@ -1,6 +1,4 @@
 
-
-
 const STATES = {
   IDLE:      'idle',
   RECORDING: 'recording',
@@ -14,9 +12,6 @@ function setState(state) {
   document.body.dataset.state = state;
 }
 
-// ============================================================
-// フルスクリーン / スリープ防止
-// ============================================================
 function enterFullscreen() {
   const el = document.documentElement;
   const fn = el.requestFullscreen || el.webkitRequestFullscreen;
@@ -37,9 +32,6 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') requestWakeLock();
 });
 
-// ============================================================
-// 音声合成（TTS）
-// ============================================================
 function loadVoices() {
   return new Promise((resolve) => {
     const v = speechSynthesis.getVoices();
@@ -66,9 +58,6 @@ async function speak(text) {
   });
 }
 
-// ============================================================
-// カメラ録画（音声あり）
-// ============================================================
 let videoStream     = null;
 let videoRecorder   = null;
 let recordingTimer  = null;
@@ -105,7 +94,6 @@ async function startVideoRecording() {
 
   videoRecorder.start(1000);
   recordingTimer = setTimeout(stopAndSend, 5 * 60 * 1000);
-  console.log('[録画] 開始');
 }
 
 function releaseCamera() {
@@ -154,7 +142,6 @@ async function uploadToDropbox(blob) {
   const resText = await res.text();
   if (!res.ok) throw new Error('Dropbox ' + res.status + ': ' + resText);
   const data = JSON.parse(resText);
-  console.log('[Dropbox] アップロード完了', data.path_display);
   return data.path_display;
 }
 
@@ -170,27 +157,13 @@ function downloadBlob(blob) {
 }
 
 async function uploadAndNotify(blob) {
-  let infoText = 'お客様よりご連絡がありました';
-
   if (blob) {
     try {
-      const path = await uploadToDropbox(blob);
-      infoText = `Dropboxに録画を保存しました：${path}`;
+      await uploadToDropbox(blob);
     } catch (err) {
       console.error('[Dropbox] アップロード失敗:', err.message);
-      infoText = '録画ファイル（端末に保存）';
-      showDebug('Dropboxエラー: ' + err.message);
       downloadBlob(blob);
     }
-  }
-
-  try {
-    await emailjs.send(CONFIG.EMAILJS_SERVICE_ID, CONFIG.EMAILJS_TEMPLATE_ID, {
-      to_email:     CONFIG.EMAIL_TO,
-      visitor_info: infoText,
-    });
-  } catch (err) {
-    console.error('[メール送信エラー]', err);
   }
 
   setState(STATES.DONE);
@@ -198,9 +171,6 @@ async function uploadAndNotify(blob) {
   doneTimer = setTimeout(goToIdle, CONFIG.DONE_RESET_MINUTES * 60 * 1000);
 }
 
-// ============================================================
-// ドアトリガー（MacroDroidから隠しボタンをタップ）
-// ============================================================
 let announceTimer   = null;
 let lastAnnouncedAt = 0;
 let doneTimer       = null;
@@ -219,14 +189,25 @@ function onDoorOpened() {
   }, CONFIG.ANNOUNCE_DELAY_SEC * 1000);
 }
 
-
 document.getElementById('door-trigger').addEventListener('click', onDoorOpened);
-document.getElementById('screen-idle').addEventListener('touchstart', (e) => { e.preventDefault(); onDoorOpened(); }, { passive: false });
+document.getElementById('door-trigger').addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  onDoorOpened();
+}, { passive: false });
 
+function testTrigger() {
+  const btn = document.getElementById('test-btn');
+  if (btn) { btn.textContent = '✓動作中'; btn.style.background = '#005500'; }
+  if (currentState !== STATES.IDLE) {
+    if (btn) btn.textContent = 'state:' + currentState;
+    return;
+  }
+  enterFullscreen();
+  setState(STATES.RECORDING);
+  startVideoRecording();
+  speak(CONFIG.VOICE_GUIDANCE);
+}
 
-// ============================================================
-// 画面フロー
-// ============================================================
 function goToIdle() {
   speechSynthesis.cancel();
   if (doneTimer) { clearTimeout(doneTimer); doneTimer = null; }
@@ -234,9 +215,6 @@ function goToIdle() {
   setState(STATES.IDLE);
 }
 
-// ============================================================
-// イベントリスナー
-// ============================================================
 async function onSendClick() {
   if (currentState === STATES.RECORDING) {
     await stopAndSend();
@@ -244,18 +222,13 @@ async function onSendClick() {
 }
 document.getElementById('btn-send').addEventListener('click', onSendClick);
 
-// ============================================================
-// 初期化
-// ============================================================
 requestWakeLock();
 speechSynthesis.getVoices();
 if (typeof speechSynthesis.onvoiceschanged !== 'undefined') {
   speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices();
 }
 
-// 起動タップ：音声ロック解除後にシステム起動
 document.getElementById('screen-start').addEventListener('click', async () => {
-  // Androidの音声ロックをユーザー操作で解除
   const utt = new SpeechSynthesisUtterance('');
   utt.volume = 0;
   speechSynthesis.speak(utt);
