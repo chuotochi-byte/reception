@@ -4,12 +4,18 @@ const STATES = {
   RECORDING: 'recording',
   UPLOADING: 'uploading',
   DONE:      'done',
+  SLEEP:     'sleep',
 };
 
 let currentState = STATES.IDLE;
 function setState(state) {
   currentState = state;
   document.body.dataset.state = state;
+}
+
+function isBusinessHours() {
+  const h = new Date().getHours();
+  return h >= CONFIG.OPEN_HOUR && h < CONFIG.CLOSE_HOUR;
 }
 
 function enterFullscreen() {
@@ -24,14 +30,19 @@ async function requestWakeLock() {
   try {
     wakeLock = await navigator.wakeLock.request('screen');
     wakeLock.addEventListener('release', () => {
-      if (document.visibilityState === 'visible') requestWakeLock();
+      if (document.visibilityState === 'visible' && currentState !== STATES.SLEEP) {
+        requestWakeLock();
+      }
     });
   } catch (e) {}
 }
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') requestWakeLock();
+  if (document.visibilityState === 'visible' && currentState !== STATES.SLEEP) {
+    requestWakeLock();
+  }
 });
 
+// TTS
 function speak(text) {
   try {
     speechSynthesis.cancel();
@@ -174,6 +185,8 @@ let lastAnnouncedAt = 0;
 let doneTimer       = null;
 
 function onDoorOpened() {
+  if (currentState === STATES.SLEEP) return;
+  if (!isBusinessHours()) return;
   if (Date.now() - lastAnnouncedAt < 30000) return;
   if (announceTimer) return;
   announceTimer = setTimeout(() => {
@@ -187,24 +200,45 @@ function onDoorOpened() {
   }, CONFIG.ANNOUNCE_DELAY_SEC * 1000);
 }
 
-document.getElementById('door-trigger').addEventListener('click', onDoorOpened);
-document.getElementById('door-trigger').addEventListener('touchstart', (e) => {
-  e.preventDefault();
-  onDoorOpened();
-}, { passive: false });
-
-function testTrigger() {
-  const btn = document.getElementById('test-btn');
-  if (btn) { btn.textContent = '✓動作中'; btn.style.background = '#005500'; }
-  if (currentState !== STATES.IDLE) {
-    if (btn) btn.textContent = 'state:' + currentState;
-    return;
-  }
-  speak(CONFIG.VOICE_GUIDANCE);
-  setState(STATES.RECORDING);
-  enterFullscreen();
-  startVideoRecording();
+// ── スリープ管理 ──────────────────────────────────────────────
+function enterSleepMode() {
+  if (announceTimer) { clearTimeout(announceTimer); announceTimer = null; }
+  if (doneTimer)     { clearTimeout(doneTimer);     doneTimer     = null; }
+  if (wakeLock)      { wakeLock.release().catch(() => {}); wakeLock = null; }
+  setState(STATES.SLEEP);
 }
+
+function exitSleepMode() {
+  requestWakeLock();
+  setState(STATES.IDLE);
+}
+
+function scheduleCheck() {
+  // 業務時間外 かつ スリープ中でなければスリープへ
+  if (!isBusinessHours() && currentState !== STATES.SLEEP) {
+    if (currentState === STATES.IDLE || currentState === STATES.DONE) {
+      enterSleepMode();
+    }
+    // 録画中・送信中は完了後に次のチェックで移行
+  }
+  // 業務時間内 かつ スリープ中なら復帰
+  if (isBusinessHours() && currentState === STATES.SLEEP) {
+    exitSleepMode();
+  }
+  // スリープ画面の時計を更新
+  const clockEl = document.getElementById('sleep-clock');
+  if (clockEl) {
+    const now = new Date();
+    clockEl.textContent =
+      String(now.getHours()).padStart(2, '0') + ':' +
+      String(now.getMinutes()).padStart(2, '0');
+  }
+}
+
+setTimeout(scheduleCheck, 2000);    // 起動直後に確認
+setInterval(scheduleCheck, 60000);  // 以降は1分ごと
+
+// ─────────────────────────────────────────────────────────────
 
 function goToIdle() {
   speechSynthesis.cancel();
@@ -220,15 +254,64 @@ async function onSendClick() {
 }
 document.getElementById('btn-send').addEventListener('click', onSendClick);
 
-requestWakeLock();
-
-document.getElementById('screen-start').addEventListener('click', () => {
+// ── ドアトリガー（音声ロック解除も自動で行う）──────────────────
+function unlockAudioIfNeeded() {
+  const startEl = document.getElementById('screen-start');
+  if (!startEl || startEl.style.display === 'none') return false; // すでに解除済み
+  // まだ「タップして開始」が表示されている → ここで自動解除
   speechSynthesis.cancel();
   const utt = new SpeechSynthesisUtterance('.');
   utt.volume = 0.01;
   speechSynthesis.speak(utt);
-
-  document.getElementById('screen-start').style.display = 'none';
+  startEl.style.display = 'none';
   enterFullscreen();
-  setState(STATES.IDLE);
+  return true; // 解除した
+}
+
+function handleDoorTrigger() {
+  const justUnlocked = unlockAudioIfNeeded();
+  if (justUnlocked) {
+    // 音声解除と同時に業務時間チェック
+    if (!isBusinessHours()) {
+      enterSleepMode();
+      return;
+    }
+    setState(STATES.IDLE);
+  }
+  onDoorOpened();
+}
+
+document.getElementById('door-trigger').addEventListener('click', handleDoorTrigger);
+document.getElementById('door-trigger').addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  handleDoorTrigger();
+}, { passive: false });
+
+function testTrigger() {
+  const btn = document.getElementById('test-btn');
+  if (btn) { btn.textContent = '✓動作中'; btn.style.background = '#005500'; }
+  if (currentState !== STATES.IDLE) {
+    if (btn) btn.textContent = 'state:' + currentState;
+    return;
+  }
+  speak(CONFIG.VOICE_GUIDANCE);
+  setState(STATES.RECORDING);
+  enterFullscreen();
+  startVideoRecording();
+}
+
+// 起動時：業務時間内のみWakeLockを取得
+if (isBusinessHours()) {
+  requestWakeLock();
+}
+
+// 手動タップ用（ドアトリガーで自動処理されるため通常は不要）
+document.getElementById('screen-start').addEventListener('click', () => {
+  unlockAudioIfNeeded();
+  enterFullscreen();
+  if (isBusinessHours()) {
+    setState(STATES.IDLE);
+  } else {
+    enterSleepMode();
+  }
 }, { once: true });
