@@ -191,3 +191,14 @@ html, body {
   letter-spacing: .08em; margin-bottom: 16px;
 }
 .done-sub { font-size: 20px; color: rgba(255,255,255,.65); letter-spacing: .06em; }
+
+/* ============================================================
+   ⑤ スリープ画面
+   ============================================================ */
+[data-state="sleep"] #screen-sleep { display: flex; }
+[data-state="sleep"] #btn-area     { display: none; }
+
+.sleep-moon  { font-size: 80px; margin-bottom: 28px; animation: pulse 4s ease-in-out infinite; }
+.sleep-title { font-size: 32px; font-weight: 700; letter-spacing: .08em; margin-bottom: 16px; color: rgba(255,255,255,.8); }
+.sleep-sub   { font-size: 19px; color: rgba(255,255,255,.4); letter-spacing: .1em; margin-bottom: 10px; }
+.sleep-clock { font-size: 56px; font-weight: 700; letter-spacing: .2em; color: rgba(255,255,255,.18); margin-top: 20px; }
