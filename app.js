@@ -32,30 +32,15 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') requestWakeLock();
 });
 
-function loadVoices() {
-  return new Promise((resolve) => {
-    const v = speechSynthesis.getVoices();
-    if (v.length) { resolve(v); return; }
-    speechSynthesis.addEventListener('voiceschanged', () => resolve(speechSynthesis.getVoices()), { once: true });
-    setTimeout(() => resolve(speechSynthesis.getVoices()), 3000);
-  });
-}
-
-async function speak(text) {
-  const voices  = await loadVoices();
-  const jpVoice = voices.find(v => v.lang.startsWith('ja'));
-  return new Promise((resolve) => {
+function speak(text) {
+  try {
     speechSynthesis.cancel();
-    const utt   = new SpeechSynthesisUtterance(text);
-    utt.lang    = 'ja-JP';
-    utt.rate    = 1.3;
-    utt.volume  = 1.0;
-    if (jpVoice) utt.voice = jpVoice;
-    utt.onend   = () => resolve();
-    utt.onerror = () => resolve();
+    const utt = new SpeechSynthesisUtterance(text);
+    utt.lang   = 'ja-JP';
+    utt.rate   = 1.0;
+    utt.volume = 1.0;
     speechSynthesis.speak(utt);
-    setTimeout(resolve, 10000);
-  });
+  } catch (e) {}
 }
 
 let videoStream     = null;
@@ -140,9 +125,8 @@ async function uploadToDropbox(blob) {
   });
 
   const resText = await res.text();
-  if (!res.ok) throw new Error('Dropbox ' + res.status + ': ' + resText);
-  const data = JSON.parse(resText);
-  return data.path_display;
+  if (!res.ok) throw new Error('HTTP ' + res.status + ': ' + resText.substring(0, 200));
+  return JSON.parse(resText).path_display;
 }
 
 function downloadBlob(blob) {
@@ -156,12 +140,26 @@ function downloadBlob(blob) {
   URL.revokeObjectURL(url);
 }
 
+function showError(msg) {
+  let el = document.getElementById('debug-msg');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'debug-msg';
+    el.style = 'position:fixed;top:10px;left:10px;right:10px;background:rgba(255,0,0,0.85);color:#fff;padding:12px;font-size:14px;z-index:99999;border-radius:8px;word-break:break-all;';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  setTimeout(() => { if (el) el.remove(); }, 15000);
+}
+
 async function uploadAndNotify(blob) {
   if (blob) {
     try {
-      await uploadToDropbox(blob);
+      const path = await uploadToDropbox(blob);
+      console.log('[Dropbox] 完了:', path);
     } catch (err) {
-      console.error('[Dropbox] アップロード失敗:', err.message);
+      console.error('[Dropbox] 失敗:', err.message);
+      showError('Dropboxエラー: ' + err.message);
       downloadBlob(blob);
     }
   }
@@ -178,14 +176,14 @@ let doneTimer       = null;
 function onDoorOpened() {
   if (Date.now() - lastAnnouncedAt < 30000) return;
   if (announceTimer) return;
-  announceTimer = setTimeout(async () => {
+  announceTimer = setTimeout(() => {
     announceTimer = null;
     if (currentState !== STATES.IDLE) return;
     lastAnnouncedAt = Date.now();
+    speak(CONFIG.VOICE_GUIDANCE);
     enterFullscreen();
     setState(STATES.RECORDING);
-    await startVideoRecording();
-    speak(CONFIG.VOICE_GUIDANCE);
+    startVideoRecording();
   }, CONFIG.ANNOUNCE_DELAY_SEC * 1000);
 }
 
@@ -202,10 +200,10 @@ function testTrigger() {
     if (btn) btn.textContent = 'state:' + currentState;
     return;
   }
-  enterFullscreen();
-  setState(STATES.RECORDING);
-  startVideoRecording();
   speak(CONFIG.VOICE_GUIDANCE);
+  setState(STATES.RECORDING);
+  enterFullscreen();
+  startVideoRecording();
 }
 
 function goToIdle() {
@@ -223,14 +221,11 @@ async function onSendClick() {
 document.getElementById('btn-send').addEventListener('click', onSendClick);
 
 requestWakeLock();
-speechSynthesis.getVoices();
-if (typeof speechSynthesis.onvoiceschanged !== 'undefined') {
-  speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices();
-}
 
-document.getElementById('screen-start').addEventListener('click', async () => {
-  const utt = new SpeechSynthesisUtterance('');
-  utt.volume = 0;
+document.getElementById('screen-start').addEventListener('click', () => {
+  speechSynthesis.cancel();
+  const utt = new SpeechSynthesisUtterance('.');
+  utt.volume = 0.01;
   speechSynthesis.speak(utt);
 
   document.getElementById('screen-start').style.display = 'none';
