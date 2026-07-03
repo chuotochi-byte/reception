@@ -287,19 +287,6 @@ document.getElementById('door-trigger').addEventListener('touchstart', (e) => {
   handleDoorTrigger();
 }, { passive: false });
 
-function testTrigger() {
-  const btn = document.getElementById('test-btn');
-  if (btn) { btn.textContent = '✓動作中'; btn.style.background = '#005500'; }
-  if (currentState !== STATES.IDLE) {
-    if (btn) btn.textContent = 'state:' + currentState;
-    return;
-  }
-  speak(CONFIG.VOICE_GUIDANCE);
-  setState(STATES.RECORDING);
-  enterFullscreen();
-  startVideoRecording();
-}
-
 // 起動時：業務時間内のみWakeLockを取得
 if (isBusinessHours()) {
   requestWakeLock();
