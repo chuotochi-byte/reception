@@ -40,7 +40,7 @@
 
 <script>
 const APP_KEY  = 'go6xm0yq8trg9pu';
-const REDIRECT = location.origin + location.pathname;
+const REDIRECT = 'https://chuotochi-byte.github.io/reception/setup.html';
 
 function b64url(buf) {
   return btoa(String.fromCharCode(...new Uint8Array(buf)))
@@ -56,7 +56,7 @@ async function genChallenge(v) {
 async function authorize() {
   const verifier  = genVerifier();
   const challenge = await genChallenge(verifier);
-  sessionStorage.setItem('pkce_verifier', verifier);
+  localStorage.setItem('pkce_verifier', verifier);
 
   location.href = 'https://www.dropbox.com/oauth2/authorize'
     + '?client_id='             + APP_KEY
@@ -75,7 +75,7 @@ async function handleCallback() {
   document.getElementById('main').style.display    = 'none';
   document.getElementById('loading').style.display = 'block';
 
-  const verifier = sessionStorage.getItem('pkce_verifier');
+  const verifier = localStorage.getItem('pkce_verifier');
   if (!verifier) { showError('セッション情報が見つかりません。やり直してください。'); return; }
 
   try {
@@ -97,7 +97,7 @@ async function handleCallback() {
     localStorage.setItem('dbx_access_token',  json.access_token);
     localStorage.setItem('dbx_refresh_token', json.refresh_token);
     localStorage.setItem('dbx_token_expiry',  Date.now() + (json.expires_in - 300) * 1000);
-    sessionStorage.removeItem('pkce_verifier');
+    localStorage.removeItem('pkce_verifier');
 
     document.getElementById('loading').style.display = 'none';
     document.getElementById('success').style.display = 'block';
