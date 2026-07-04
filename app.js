@@ -1,4 +1,3 @@
-
 const STATES = {
   IDLE:      'idle',
   RECORDING: 'recording',
@@ -123,7 +122,6 @@ async function stopAndSend() {
 async function getDropboxToken() {
   const expiry = parseInt(localStorage.getItem('dbx_token_expiry') || '0');
   const stored = localStorage.getItem('dbx_access_token');
-
   if (stored && Date.now() < expiry) return stored;
 
   const refresh = localStorage.getItem('dbx_refresh_token');
@@ -270,10 +268,9 @@ async function onSendClick() {
   if (currentState === STATES.RECORDING) {
     await stopAndSend();
   } else if (currentState === STATES.IDLE) {
-    onDoorOpened(); // 待機中は録音開始
+    onDoorOpened();
   }
 }
-
 document.getElementById('btn-send').addEventListener('click', onSendClick);
 
 function unlockAudioIfNeeded() {
@@ -293,10 +290,7 @@ function unlockAudioIfNeeded() {
 function handleDoorTrigger() {
   const justUnlocked = unlockAudioIfNeeded();
   if (justUnlocked) {
-    if (!isBusinessHours()) {
-      enterSleepMode();
-      return;
-    }
+    if (!isBusinessHours()) { enterSleepMode(); return; }
     setState(STATES.IDLE);
   }
   onDoorOpened();
