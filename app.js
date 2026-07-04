@@ -269,8 +269,11 @@ function goToIdle() {
 async function onSendClick() {
   if (currentState === STATES.RECORDING) {
     await stopAndSend();
+  } else if (currentState === STATES.IDLE) {
+    onDoorOpened(); // 待機中は録音開始
   }
 }
+
 document.getElementById('btn-send').addEventListener('click', onSendClick);
 
 function unlockAudioIfNeeded() {
