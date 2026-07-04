@@ -2,117 +2,69 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>Dropbox 連携設定</title>
-  <style>
-    body { font-family: sans-serif; max-width: 560px; margin: 60px auto; padding: 20px; }
-    h1 { font-size: 22px; margin-bottom: 16px; }
-    p  { line-height: 1.7; color: #333; }
-    .btn { display: inline-block; background: #0061fe; color: #fff; border: none;
-           padding: 14px 28px; font-size: 16px; border-radius: 6px; cursor: pointer; margin-top: 20px; }
-    .success { color: #006600; font-weight: bold; font-size: 18px; margin-top: 16px; }
-    .error   { color: red; margin-top: 16px; }
-  </style>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>受付 | 中央土地建物有限会社</title>
+  <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body data-state="idle">
 
-<h1>Dropbox 連携設定</h1>
-
-<div id="main">
-  <p>ボタンをクリックするとDropboxの認証画面が開きます。<br>
-     一度認証すれば<strong>トークンが自動更新され、期限切れになりません。</strong></p>
-  <button class="btn" onclick="authorize()">Dropboxと連携する</button>
+<div id="screen-start">
+  <p class="start-title">タップして開始</p>
+  <p class="start-sub">受付システムを起動します</p>
 </div>
 
-<div id="loading" style="display:none">
-  <p>認証処理中... しばらくお待ちください</p>
+<div id="app">
+
+  <div id="screen-idle" class="screen">
+    <div class="logo-wrap">
+      <img src="logo.png" alt="中央土地建物有限会社" class="company-logo"
+        onload="document.getElementById('co-name').style.opacity='0.5'"
+        onerror="this.style.display='none'">
+      <p id="co-name" class="co-name">中央土地建物有限会社</p>
+    </div>
+    <p class="welcome">いらっしゃいませ</p>
+    <p class="announce-body">そのままお名前・ご用件・ご連絡先を<br>口頭でお話しください</p>
+  </div>
+
+  <div id="screen-recording" class="screen">
+    <p class="announce-title">いらっしゃいませ</p>
+    <p class="announce-body">そのままお名前・ご用件・ご連絡先を<br>口頭でお話しください</p>
+    <div class="mic-wave" aria-hidden="true">
+      <span></span><span></span><span></span><span></span><span></span>
+    </div>
+    <p class="rec-hint">録音中 — 話し終わったら送信ボタンを押してください</p>
+  </div>
+
+  <div id="screen-uploading" class="screen">
+    <div class="spinner"></div>
+    <p class="sending-text">送信中...</p>
+  </div>
+
+  <div id="screen-done" class="screen">
+    <div class="done-check">✓</div>
+    <p class="done-title">後ほどご連絡いたします</p>
+    <p class="done-sub">お電話またはSMSにてご連絡いたします</p>
+  </div>
+
+  <div id="screen-sleep" class="screen">
+    <div class="sleep-moon">🌙</div>
+    <p class="sleep-title">本日の受付は終了いたしました</p>
+    <p class="sleep-sub">受付時間　9:00〜17:00</p>
+    <p class="sleep-clock" id="sleep-clock"></p>
+  </div>
+
 </div>
 
-<div id="success" style="display:none">
-  <p class="success">✓ 連携完了しました</p>
-  <p>このページを閉じて受付システムをご利用ください。<br>
-     次回からDropboxへの保存が自動的に継続されます。</p>
+<div id="btn-area">
+  <button id="btn-send" class="btn-gold btn-xl">担当者へ送信する</button>
+  <p class="btn-hint">この送信ボタンを押すと担当者へ伝達いたします</p>
 </div>
 
-<div id="error-box" style="display:none">
-  <p class="error" id="error-msg">エラーが発生しました。もう一度お試しください。</p>
-  <button class="btn" onclick="location.reload()">やり直す</button>
-</div>
+<video id="motion-video" muted playsinline style="display:none"></video>
+<button id="door-trigger" style="position:fixed;top:0;left:0;width:80px;height:80px;opacity:0;z-index:9999;"></button>
 
-<script>
-const APP_KEY  = 'go6xm0yq8trg9pu';
-const REDIRECT = location.origin + location.pathname;
-
-function b64url(buf) {
-  return btoa(String.fromCharCode(...new Uint8Array(buf)))
-    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-}
-function genVerifier() {
-  return b64url(crypto.getRandomValues(new Uint8Array(32)));
-}
-async function genChallenge(v) {
-  return b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(v)));
-}
-
-async function authorize() {
-  const verifier  = genVerifier();
-  const challenge = await genChallenge(verifier);
-  sessionStorage.setItem('pkce_verifier', verifier);
-
-  location.href = 'https://www.dropbox.com/oauth2/authorize'
-    + '?client_id='             + APP_KEY
-    + '&response_type=code'
-    + '&token_access_type=offline'
-    + '&code_challenge='        + challenge
-    + '&code_challenge_method=S256'
-    + '&redirect_uri='          + encodeURIComponent(REDIRECT);
-}
-
-async function handleCallback() {
-  const code = new URLSearchParams(location.search).get('code');
-  if (!code) return;
-
-  history.replaceState({}, '', location.pathname);
-  document.getElementById('main').style.display    = 'none';
-  document.getElementById('loading').style.display = 'block';
-
-  const verifier = sessionStorage.getItem('pkce_verifier');
-  if (!verifier) { showError('セッション情報が見つかりません。やり直してください。'); return; }
-
-  try {
-    const res = await fetch('https://api.dropboxapi.com/oauth2/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        code,
-        grant_type:    'authorization_code',
-        code_verifier: verifier,
-        redirect_uri:  REDIRECT,
-        client_id:     APP_KEY,
-      }),
-    });
-
-    const json = await res.json();
-    if (!res.ok) throw new Error(json.error_description || json.error || 'token exchange failed');
-
-    localStorage.setItem('dbx_access_token',  json.access_token);
-    localStorage.setItem('dbx_refresh_token', json.refresh_token);
-    localStorage.setItem('dbx_token_expiry',  Date.now() + (json.expires_in - 300) * 1000);
-    sessionStorage.removeItem('pkce_verifier');
-
-    document.getElementById('loading').style.display = 'none';
-    document.getElementById('success').style.display = 'block';
-  } catch (e) {
-    showError(e.message);
-  }
-}
-
-function showError(msg) {
-  document.getElementById('loading').style.display   = 'none';
-  document.getElementById('error-box').style.display = 'block';
-  document.getElementById('error-msg').textContent   = 'エラー: ' + msg;
-}
-
-handleCallback();
-</script>
+<script src="config.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
