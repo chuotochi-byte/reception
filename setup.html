@@ -4,69 +4,115 @@
   <meta charset="UTF-8">
   <title>Dropbox 連携設定</title>
   <style>
-    body { font-family: sans-serif; max-width: 600px; margin: 60px auto; padding: 20px; }
-    h1 { font-size: 22px; }
-    #token-box { width: 100%; height: 80px; font-size: 12px; margin-top: 10px; }
-    .btn { background: #0061fe; color: #fff; border: none; padding: 14px 28px;
-           font-size: 16px; border-radius: 6px; cursor: pointer; margin-top: 20px; }
-    .success { color: green; font-weight: bold; margin-top: 16px; }
+    body { font-family: sans-serif; max-width: 560px; margin: 60px auto; padding: 20px; }
+    h1 { font-size: 22px; margin-bottom: 16px; }
+    p  { line-height: 1.7; color: #333; }
+    .btn { display: inline-block; background: #0061fe; color: #fff; border: none;
+           padding: 14px 28px; font-size: 16px; border-radius: 6px; cursor: pointer; margin-top: 20px; }
+    .success { color: #006600; font-weight: bold; font-size: 18px; margin-top: 16px; }
     .error   { color: red; margin-top: 16px; }
   </style>
 </head>
 <body>
 
-<h1>Dropbox 長期トークン取得</h1>
+<h1>Dropbox 連携設定</h1>
 
 <div id="main">
-  <p>下のボタンをクリックするとDropboxの認証画面が開きます。</p>
+  <p>ボタンをクリックするとDropboxの認証画面が開きます。<br>
+     一度認証すれば<strong>トークンが自動更新され、期限切れになりません。</strong></p>
   <button class="btn" onclick="authorize()">Dropboxと連携する</button>
 </div>
 
-<div id="result" style="display:none">
-  <p class="success">✓ 取得成功！下のトークンをコピーしてClaudeに貼り付けてください。</p>
-  <textarea id="token-box" readonly></textarea>
-  <br>
-  <button class="btn" onclick="copyToken()">コピーする</button>
+<div id="loading" style="display:none">
+  <p>認証処理中... しばらくお待ちください</p>
 </div>
 
-<div id="error" style="display:none">
-  <p class="error">エラーが発生しました。もう一度試してください。</p>
+<div id="success" style="display:none">
+  <p class="success">✓ 連携完了しました</p>
+  <p>このページを閉じて受付システムをご利用ください。<br>
+     次回からDropboxへの保存が自動的に継続されます。</p>
+</div>
+
+<div id="error-box" style="display:none">
+  <p class="error" id="error-msg">エラーが発生しました。もう一度お試しください。</p>
+  <button class="btn" onclick="location.reload()">やり直す</button>
 </div>
 
 <script>
-  const APP_KEY = 'go6xm0yq8trg9pu';
-  const REDIRECT = location.origin + location.pathname;
+const APP_KEY  = 'go6xm0yq8trg9pu';
+const REDIRECT = location.origin + location.pathname;
 
+function b64url(buf) {
+  return btoa(String.fromCharCode(...new Uint8Array(buf)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+function genVerifier() {
+  return b64url(crypto.getRandomValues(new Uint8Array(32)));
+}
+async function genChallenge(v) {
+  return b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(v)));
+}
 
-  function authorize() {
-    const url = 'https://www.dropbox.com/oauth2/authorize'
-      + '?client_id=' + APP_KEY
-      + '&response_type=token'
-      + '&token_access_type=legacy'
-      + '&redirect_uri=' + encodeURIComponent(REDIRECT);
-    location.href = url;
+async function authorize() {
+  const verifier  = genVerifier();
+  const challenge = await genChallenge(verifier);
+  sessionStorage.setItem('pkce_verifier', verifier);
+
+  location.href = 'https://www.dropbox.com/oauth2/authorize'
+    + '?client_id='             + APP_KEY
+    + '&response_type=code'
+    + '&token_access_type=offline'
+    + '&code_challenge='        + challenge
+    + '&code_challenge_method=S256'
+    + '&redirect_uri='          + encodeURIComponent(REDIRECT);
+}
+
+async function handleCallback() {
+  const code = new URLSearchParams(location.search).get('code');
+  if (!code) return;
+
+  history.replaceState({}, '', location.pathname);
+  document.getElementById('main').style.display    = 'none';
+  document.getElementById('loading').style.display = 'block';
+
+  const verifier = sessionStorage.getItem('pkce_verifier');
+  if (!verifier) { showError('セッション情報が見つかりません。やり直してください。'); return; }
+
+  try {
+    const res = await fetch('https://api.dropboxapi.com/oauth2/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code,
+        grant_type:    'authorization_code',
+        code_verifier: verifier,
+        redirect_uri:  REDIRECT,
+        client_id:     APP_KEY,
+      }),
+    });
+
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error_description || json.error || 'token exchange failed');
+
+    localStorage.setItem('dbx_access_token',  json.access_token);
+    localStorage.setItem('dbx_refresh_token', json.refresh_token);
+    localStorage.setItem('dbx_token_expiry',  Date.now() + (json.expires_in - 300) * 1000);
+    sessionStorage.removeItem('pkce_verifier');
+
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('success').style.display = 'block';
+  } catch (e) {
+    showError(e.message);
   }
+}
 
-  function copyToken() {
-    const box = document.getElementById('token-box');
-    box.select();
-    document.execCommand('copy');
-    alert('コピーしました');
-  }
+function showError(msg) {
+  document.getElementById('loading').style.display   = 'none';
+  document.getElementById('error-box').style.display = 'block';
+  document.getElementById('error-msg').textContent   = 'エラー: ' + msg;
+}
 
-  // URLハッシュからトークンを取得
-  const hash = location.hash;
-  if (hash && hash.includes('access_token')) {
-    const params = new URLSearchParams(hash.substring(1));
-    const token = params.get('access_token');
-    if (token) {
-      document.getElementById('main').style.display = 'none';
-      document.getElementById('result').style.display = 'block';
-      document.getElementById('token-box').value = token;
-    } else {
-      document.getElementById('error').style.display = 'block';
-    }
-  }
+handleCallback();
 </script>
 </body>
 </html>
