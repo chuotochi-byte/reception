@@ -1,20 +1,15 @@
+
 const STATES = {
   IDLE:      'idle',
   RECORDING: 'recording',
   UPLOADING: 'uploading',
   DONE:      'done',
-  SLEEP:     'sleep',
 };
 
 let currentState = STATES.IDLE;
 function setState(state) {
   currentState = state;
   document.body.dataset.state = state;
-}
-
-function isBusinessHours() {
-  const h = new Date().getHours();
-  return h >= CONFIG.OPEN_HOUR && h < CONFIG.CLOSE_HOUR;
 }
 
 function enterFullscreen() {
@@ -29,17 +24,12 @@ async function requestWakeLock() {
   try {
     wakeLock = await navigator.wakeLock.request('screen');
     wakeLock.addEventListener('release', () => {
-      if (document.visibilityState === 'visible' && currentState !== STATES.SLEEP) {
-        requestWakeLock();
-      }
+      if (document.visibilityState === 'visible') requestWakeLock();
     });
   } catch (e) {}
 }
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') {
-    scheduleCheck();
-    if (currentState !== STATES.SLEEP) requestWakeLock();
-  }
+  if (document.visibilityState === 'visible') requestWakeLock();
 });
 
 function speak(text) {
@@ -210,8 +200,6 @@ let lastAnnouncedAt = 0;
 let doneTimer       = null;
 
 function onDoorOpened() {
-  if (currentState === STATES.SLEEP) return;
-  if (!isBusinessHours()) return;
   if (Date.now() - lastAnnouncedAt < 30000) return;
   if (announceTimer) return;
   announceTimer = setTimeout(() => {
@@ -224,38 +212,6 @@ function onDoorOpened() {
     startVideoRecording();
   }, CONFIG.ANNOUNCE_DELAY_SEC * 1000);
 }
-
-function enterSleepMode() {
-  if (announceTimer) { clearTimeout(announceTimer); announceTimer = null; }
-  if (doneTimer)     { clearTimeout(doneTimer);     doneTimer     = null; }
-  setState(STATES.SLEEP);
-}
-
-function exitSleepMode() {
-  requestWakeLock();
-  setState(STATES.IDLE);
-}
-
-function scheduleCheck() {
-  if (!isBusinessHours() && currentState !== STATES.SLEEP) {
-    if (currentState === STATES.IDLE || currentState === STATES.DONE) {
-      enterSleepMode();
-    }
-  }
-  if (isBusinessHours() && currentState === STATES.SLEEP) {
-    exitSleepMode();
-  }
-  const clockEl = document.getElementById('sleep-clock');
-  if (clockEl) {
-    const now = new Date();
-    clockEl.textContent =
-      String(now.getHours()).padStart(2, '0') + ':' +
-      String(now.getMinutes()).padStart(2, '0');
-  }
-}
-
-setTimeout(scheduleCheck, 2000);
-setInterval(scheduleCheck, 60000);
 
 function goToIdle() {
   try { speechSynthesis.cancel(); } catch(e) {}
@@ -288,11 +244,8 @@ function unlockAudioIfNeeded() {
 }
 
 function handleDoorTrigger() {
-  const justUnlocked = unlockAudioIfNeeded();
-  if (justUnlocked) {
-    if (!isBusinessHours()) { enterSleepMode(); return; }
-    setState(STATES.IDLE);
-  }
+  unlockAudioIfNeeded();
+  setState(STATES.IDLE);
   onDoorOpened();
 }
 
@@ -302,15 +255,13 @@ document.getElementById('door-trigger').addEventListener('touchstart', (e) => {
   handleDoorTrigger();
 }, { passive: false });
 
-if (isBusinessHours()) {
-  requestWakeLock();
-}
+requestWakeLock();
 
 (function () {
   function doStart() {
     unlockAudioIfNeeded();
     enterFullscreen();
-    if (isBusinessHours()) { setState(STATES.IDLE); } else { enterSleepMode(); }
+    setState(STATES.IDLE);
   }
   const el = document.getElementById('screen-start');
   el.addEventListener('touchstart', (e) => { e.preventDefault(); doStart(); }, { passive: false });
