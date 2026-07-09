@@ -61,9 +61,16 @@ async function startVideoRecording() {
       videoStream     = stream;
       video.srcObject = stream;
       await video.play();
-    } catch (err) {
-      showError('カメラ起動失敗: ' + err.message);
-      return;
+    } catch (videoErr) {
+      // カメラ失敗時はマイクのみで再試行
+      try {
+        const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        videoStream     = audioStream;
+        video.srcObject = audioStream;
+      } catch (audioErr) {
+        showError('カメラ・マイク起動失敗: ' + audioErr.message);
+        return;
+      }
     }
   }
 
@@ -183,12 +190,11 @@ async function uploadAndNotify(blob) {
       const path = await uploadToDropbox(blob);
       console.log('[Dropbox] 完了:', path);
     } catch (err) {
-      console.error('[Dropbox] 失敗:', err.message);
       showError('Dropboxエラー: ' + err.message);
       downloadBlob(blob);
     }
   } else {
-    showError('録画なし：カメラ・マイクの許可を確認してください');
+    showError('録音なし：カメラ・マイクの許可を確認してください');
   }
 
   setState(STATES.DONE);
@@ -199,18 +205,6 @@ async function uploadAndNotify(blob) {
 let announceTimer   = null;
 let lastAnnouncedAt = 0;
 let doneTimer       = null;
-let audioUnlocked   = false;
-
-function ensureAudioUnlocked() {
-  if (audioUnlocked) return;
-  try {
-    speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance('');
-    u.volume = 0;
-    speechSynthesis.speak(u);
-    audioUnlocked = true;
-  } catch(e) {}
-}
 
 function onDoorOpened() {
   if (currentState !== STATES.IDLE) return;
@@ -218,7 +212,6 @@ function onDoorOpened() {
   if (announceTimer) return;
 
   lastAnnouncedAt = Date.now();
-  ensureAudioUnlocked();
   enterFullscreen();
   setState(STATES.RECORDING);
   startVideoRecording();
@@ -241,17 +234,30 @@ async function onSendClick() {
     await stopAndSend();
   }
 }
-
 document.getElementById('btn-send').addEventListener('click', onSendClick);
-document.getElementById('btn-send').addEventListener('touchstart', (e) => {
-  e.preventDefault();
-  onSendClick();
-}, { passive: false });
 
-document.getElementById('door-trigger').addEventListener('click', onDoorOpened);
+let audioUnlocked = false;
+function ensureAudioUnlocked() {
+  if (audioUnlocked) return;
+  try {
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance('');
+    u.volume = 0;
+    speechSynthesis.speak(u);
+    audioUnlocked = true;
+  } catch(e) {}
+}
+
+function handleDoorTrigger() {
+  ensureAudioUnlocked();
+  enterFullscreen();
+  onDoorOpened();
+}
+
+document.getElementById('door-trigger').addEventListener('click', handleDoorTrigger);
 document.getElementById('door-trigger').addEventListener('touchstart', (e) => {
   e.preventDefault();
-  onDoorOpened();
+  handleDoorTrigger();
 }, { passive: false });
 
 requestWakeLock();
@@ -262,9 +268,13 @@ requestWakeLock();
   enterFullscreen();
   setState(STATES.IDLE);
 
+  // ドアセンサー（MacroDroid）からの?door=1を受信して録画開始
   const bc = new BroadcastChannel('reception_door');
   bc.onmessage = (e) => {
-    if (e.data === 'door_open') onDoorOpened();
+    if (e.data === 'door_open') {
+      // 新しいタブが閉じてフォーカスが戻るまで1秒待ってからカメラ起動
+      setTimeout(() => onDoorOpened(), 1000);
+    }
   };
 
   if (new URLSearchParams(window.location.search).get('door') === '1') {
