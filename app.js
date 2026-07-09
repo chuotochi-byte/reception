@@ -261,4 +261,9 @@ requestWakeLock();
   if (startEl) startEl.style.display = 'none';
   enterFullscreen();
   setState(STATES.IDLE);
+
+  if (new URLSearchParams(window.location.search).get('door') === '1') {
+    history.replaceState({}, '', location.pathname);
+    setTimeout(onDoorOpened, 500);
+  }
 }());
