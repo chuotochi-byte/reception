@@ -185,17 +185,22 @@ let announceTimer   = null;
 let lastAnnouncedAt = 0;
 let doneTimer       = null;
 
+
 function onDoorOpened() {
+  if (currentState !== STATES.IDLE) return;
   if (Date.now() - lastAnnouncedAt < 30000) return;
   if (announceTimer) return;
+
+  // ドアセンサーと同時に録画開始
+  lastAnnouncedAt = Date.now();
+  enterFullscreen();
+  setState(STATES.RECORDING);
+  startVideoRecording();
+
+  // 5秒後にアナウンス
   announceTimer = setTimeout(() => {
     announceTimer = null;
-    if (currentState !== STATES.IDLE) return;
-    lastAnnouncedAt = Date.now();
     speak(CONFIG.VOICE_GUIDANCE);
-    enterFullscreen();
-    setState(STATES.RECORDING);
-    startVideoRecording();
   }, CONFIG.ANNOUNCE_DELAY_SEC * 1000);
 }
 
