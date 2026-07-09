@@ -263,3 +263,15 @@ requestWakeLock();
   if (startEl) startEl.style.display = 'none';
   enterFullscreen();
   setState(STATES.IDLE);
+
+  const bc = new BroadcastChannel('reception_door');
+  bc.onmessage = (e) => {
+    if (e.data === 'door_open') onDoorOpened();
+  };
+
+  if (new URLSearchParams(window.location.search).get('door') === '1') {
+    history.replaceState({}, '', location.pathname);
+    bc.postMessage('door_open');
+    setTimeout(() => { try { window.close(); } catch(e) {} }, 300);
+  }
+}());
