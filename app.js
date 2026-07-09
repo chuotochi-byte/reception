@@ -239,8 +239,6 @@ function goToIdle() {
 async function onSendClick() {
   if (currentState === STATES.RECORDING) {
     await stopAndSend();
-  } else if (currentState === STATES.IDLE) {
-    onDoorOpened();
   }
 }
 
