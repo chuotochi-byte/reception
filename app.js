@@ -1,4 +1,3 @@
-
 const STATES = {
   IDLE:      'idle',
   RECORDING: 'recording',
@@ -51,7 +50,6 @@ let recordingMime   = '';
 
 async function startVideoRecording() {
   if (videoRecorder) return;
-
   if (!videoStream) {
     const video = document.getElementById('motion-video');
     try {
@@ -67,16 +65,13 @@ async function startVideoRecording() {
       return;
     }
   }
-
   recordingMime   = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
     ? 'video/webm;codecs=vp9' : 'video/webm';
   recordingChunks = [];
   videoRecorder   = new MediaRecorder(videoStream, { mimeType: recordingMime });
-
   videoRecorder.ondataavailable = (e) => {
     if (e.data.size > 0) recordingChunks.push(e.data);
   };
-
   videoRecorder.start(1000);
   recordingTimer = setTimeout(stopAndSend, 5 * 60 * 1000);
 }
@@ -91,9 +86,7 @@ function releaseCamera() {
 
 async function stopAndSend() {
   if (recordingTimer) { clearTimeout(recordingTimer); recordingTimer = null; }
-
   setState(STATES.UPLOADING);
-
   let blob = null;
   if (videoRecorder && videoRecorder.state !== 'inactive') {
     blob = await new Promise(resolve => {
@@ -104,7 +97,6 @@ async function stopAndSend() {
       videoRecorder.stop();
     });
   }
-
   releaseCamera();
   await uploadAndNotify(blob);
 }
@@ -113,10 +105,8 @@ async function getDropboxToken() {
   const expiry = parseInt(localStorage.getItem('dbx_token_expiry') || '0');
   const stored = localStorage.getItem('dbx_access_token');
   if (stored && Date.now() < expiry) return stored;
-
   const refresh = localStorage.getItem('dbx_refresh_token');
   if (!refresh) return CONFIG.DROPBOX_TOKEN;
-
   const res = await fetch('https://api.dropboxapi.com/oauth2/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -128,7 +118,6 @@ async function getDropboxToken() {
   });
   const json = await res.json();
   if (!res.ok) return CONFIG.DROPBOX_TOKEN;
-
   localStorage.setItem('dbx_access_token', json.access_token);
   localStorage.setItem('dbx_token_expiry', Date.now() + (json.expires_in - 300) * 1000);
   return json.access_token;
@@ -139,7 +128,6 @@ async function uploadToDropbox(blob) {
   const now = new Date();
   const ts  = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
   const path = `/reception_${ts}.webm`;
-
   const res = await fetch('https://content.dropboxapi.com/2/files/upload', {
     method: 'POST',
     headers: {
@@ -149,7 +137,6 @@ async function uploadToDropbox(blob) {
     },
     body: blob,
   });
-
   const resText = await res.text();
   if (!res.ok) throw new Error('HTTP ' + res.status + ': ' + resText.substring(0, 200));
   return JSON.parse(resText).path_display;
@@ -189,7 +176,6 @@ async function uploadAndNotify(blob) {
       downloadBlob(blob);
     }
   }
-
   setState(STATES.DONE);
   if (doneTimer) clearTimeout(doneTimer);
   doneTimer = setTimeout(goToIdle, CONFIG.DONE_RESET_MINUTES * 60 * 1000);
@@ -229,22 +215,21 @@ async function onSendClick() {
 }
 document.getElementById('btn-send').addEventListener('click', onSendClick);
 
-function unlockAudioIfNeeded() {
-  const startEl = document.getElementById('screen-start');
-  if (!startEl || startEl.style.display === 'none') return false;
+let audioUnlocked = false;
+function ensureAudioUnlocked() {
+  if (audioUnlocked) return;
   try {
     speechSynthesis.cancel();
-    const utt = new SpeechSynthesisUtterance('.');
-    utt.volume = 0.01;
-    speechSynthesis.speak(utt);
-  } catch (e) {}
-  startEl.style.display = 'none';
-  enterFullscreen();
-  return true;
+    const u = new SpeechSynthesisUtterance('');
+    u.volume = 0;
+    speechSynthesis.speak(u);
+    audioUnlocked = true;
+  } catch(e) {}
 }
 
 function handleDoorTrigger() {
-  unlockAudioIfNeeded();
+  ensureAudioUnlocked();
+  enterFullscreen();
   setState(STATES.IDLE);
   onDoorOpened();
 }
@@ -257,13 +242,10 @@ document.getElementById('door-trigger').addEventListener('touchstart', (e) => {
 
 requestWakeLock();
 
+// ページ読み込み時に自動でIDLE画面へ（タップ不要）
 (function () {
-  function doStart() {
-    unlockAudioIfNeeded();
-    enterFullscreen();
-    setState(STATES.IDLE);
-  }
-  const el = document.getElementById('screen-start');
-  el.addEventListener('touchstart', (e) => { e.preventDefault(); doStart(); }, { passive: false });
-  el.addEventListener('click', doStart);
+  const startEl = document.getElementById('screen-start');
+  if (startEl) startEl.style.display = 'none';
+  enterFullscreen();
+  setState(STATES.IDLE);
 }());
