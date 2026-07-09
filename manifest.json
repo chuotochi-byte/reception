@@ -1,1 +1,10 @@
+{
+  "name": "受付システム",
+  "short_name": "受付",
+  "start_url": "/reception/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0a0a1a",
+  "theme_color": "#0a0a1a"
+}
 
