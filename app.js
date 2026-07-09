@@ -55,14 +55,14 @@ async function startVideoRecording() {
     const video = document.getElementById('motion-video');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user', width: { ideal: 320 }, height: { ideal: 240 } },
+        video: { width: { ideal: 320 }, height: { ideal: 240 } },
         audio: true,
       });
       videoStream     = stream;
       video.srcObject = stream;
       await video.play();
     } catch (err) {
-      console.warn('[カメラ] 起動失敗:', err.message);
+      showError('カメラ起動失敗: ' + err.message);
       return;
     }
   }
@@ -187,6 +187,8 @@ async function uploadAndNotify(blob) {
       showError('Dropboxエラー: ' + err.message);
       downloadBlob(blob);
     }
+  } else {
+    showError('録画なし：カメラ・マイクの許可を確認してください');
   }
 
   setState(STATES.DONE);
