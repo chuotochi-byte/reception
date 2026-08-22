@@ -42,123 +42,9 @@ function speak(text) {
   } catch (e) {}
 }
 
-// ─── AI画像チェック ────────────────────────────────────────────────────────
-// 録画中の映像からスナップショットを撮り、人が映っているか判定する
-async function isRoomEmpty() {
-  const video = document.getElementById('motion-video');
-  if (!video || video.readyState < 2) return false;
-
-  // ── AIチェック（Anthropic APIキーがある場合）──
-  if (CONFIG.ANTHROPIC_API_KEY) {
-    try {
-      const snap = document.createElement('canvas');
-      snap.width  = 320;
-      snap.height = 240;
-      snap.getContext('2d').drawImage(video, 0, 0, 320, 240);
-      const b64 = snap.toDataURL('image/jpeg', 0.6).split(',')[1];
-
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type':   'application/json',
-          'x-api-key':      CONFIG.ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model:      'claude-haiku-4-5-20251001',
-          max_tokens: 5,
-          messages: [{
-            role: 'user',
-            content: [
-              {
-                type:   'image',
-                source: { type: 'base64', media_type: 'image/jpeg', data: b64 },
-              },
-              {
-                type: 'text',
-                text: 'この画像に人間が映っていますか？YESまたはNOのみ答えてください。',
-              },
-            ],
-          }],
-        }),
-      });
-
-      if (!res.ok) throw new Error('API ' + res.status);
-      const json = await res.json();
-      const ans  = (json.content?.[0]?.text || '').trim().toUpperCase();
-      return ans.startsWith('NO'); // NOなら空室
-    } catch (e) {
-      showError('AI画像チェック失敗: ' + e.message);
-      return false; // エラー時は人がいると仮定して続行
-    }
-  }
-
-  // ── ピクセル比較フォールバック（APIキーなし）──
-  if (!baseline) return false;
-  presCtx.drawImage(video, 0, 0, PRES_W, PRES_H);
-  const curr = presCtx.getImageData(0, 0, PRES_W, PRES_H);
-  return frameDiff(curr, baseline) < ABSENT_THRESHOLD;
-}
-
-// ─── ピクセル比較（フォールバック用）─────────────────────────────────────
-const PRES_W = 64, PRES_H = 48;
-const ABSENT_THRESHOLD = 18;
-let presCanvas = document.createElement('canvas');
-presCanvas.width  = PRES_W;
-presCanvas.height = PRES_H;
-let presCtx = null;
-try { presCtx = presCanvas.getContext('2d', { willReadFrequently: true }); } catch(e) {}
-let baseline = null;
-
-function captureBaseline() {
-  const v = document.getElementById('motion-video');
-  if (!presCtx || !v || v.readyState < 2) return;
-  presCtx.drawImage(v, 0, 0, PRES_W, PRES_H);
-  baseline = presCtx.getImageData(0, 0, PRES_W, PRES_H);
-}
-
-function frameDiff(a, b) {
-  let sum = 0;
-  for (let i = 0; i < a.data.length; i += 4) {
-    sum += Math.abs(a.data[i]   - b.data[i]);
-    sum += Math.abs(a.data[i+1] - b.data[i+1]);
-    sum += Math.abs(a.data[i+2] - b.data[i+2]);
-  }
-  return sum / (PRES_W * PRES_H * 3);
-}
-
-// ─── スケジュール画像チェック ───────────────────────────────────────────
-// 1分・2分・3分・4分にチェック、5分で強制終了
-let checkTimers = [];
-
-function schedulePresenceChecks() {
-  clearPresenceChecks();
-  [1, 2, 3, 4].forEach(min => {
-    const t = setTimeout(async () => {
-      if (currentState !== STATES.RECORDING) return;
-      const empty = await isRoomEmpty();
-      if (empty && currentState === STATES.RECORDING) {
-        stopAndSend(); // 人なし → 自動送信
-      }
-    }, min * 60 * 1000);
-    checkTimers.push(t);
-  });
-  // 5分で強制終了
-  const t5 = setTimeout(() => {
-    if (currentState === STATES.RECORDING) stopAndSend();
-  }, 5 * 60 * 1000);
-  checkTimers.push(t5);
-}
-
-function clearPresenceChecks() {
-  checkTimers.forEach(t => clearTimeout(t));
-  checkTimers = [];
-}
-
-// ─── カメラ・録画 ──────────────────────────────────────────────────────────
 let videoStream     = null;
 let videoRecorder   = null;
+let recordingTimer  = null;
 let recordingChunks = [];
 let recordingMime   = '';
 
@@ -175,8 +61,6 @@ async function startVideoRecording() {
       videoStream     = stream;
       video.srcObject = stream;
       await video.play();
-      // 3秒後にベースライン記録（人が来る前の状態）
-      setTimeout(captureBaseline, 3000);
     } catch (videoErr) {
       try {
         const audioOnly = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -197,23 +81,19 @@ async function startVideoRecording() {
     if (e.data.size > 0) recordingChunks.push(e.data);
   };
   videoRecorder.start(1000);
-  schedulePresenceChecks(); // 1・2・3・4分チェック＋5分強制終了
+  recordingTimer = setTimeout(stopAndSend, 5 * 60 * 1000);
 }
 
 function releaseCamera() {
   if (videoStream) {
-    // 退出後3秒でベースライン更新→次の来客に備える
-    setTimeout(captureBaseline, 3000);
-    setTimeout(() => {
-      videoStream.getTracks().forEach(t => t.stop());
-      videoStream = null;
-      document.getElementById('motion-video').srcObject = null;
-    }, 4000);
+    videoStream.getTracks().forEach(t => t.stop());
+    videoStream = null;
+    document.getElementById('motion-video').srcObject = null;
   }
 }
 
 async function stopAndSend() {
-  clearPresenceChecks();
+  if (recordingTimer) { clearTimeout(recordingTimer); recordingTimer = null; }
   setState(STATES.UPLOADING);
 
   let blob = null;
@@ -233,7 +113,6 @@ async function stopAndSend() {
   await uploadAndNotify(blob);
 }
 
-// ─── Dropbox ──────────────────────────────────────────────────────────────
 async function getDropboxToken() {
   const expiry = parseInt(localStorage.getItem('dbx_token_expiry') || '0');
   const stored = localStorage.getItem('dbx_access_token');
@@ -316,7 +195,6 @@ async function uploadAndNotify(blob) {
   doneTimer = setTimeout(goToIdle, CONFIG.DONE_RESET_MINUTES * 60 * 1000);
 }
 
-// ─── 状態管理 ──────────────────────────────────────────────────────────────
 let announceTimer = null;
 let lastDoorTime  = 0;
 let doneTimer     = null;
@@ -349,7 +227,6 @@ async function onSendClick() {
 }
 document.getElementById('btn-send').addEventListener('click', onSendClick);
 
-// ─── 画面タップ（手動テスト）──────────────────────────────────────────────
 let audioUnlocked = false;
 function ensureAudioUnlocked() {
   if (audioUnlocked) return;
@@ -373,7 +250,6 @@ document.getElementById('door-trigger').addEventListener('touchstart', (e) => {
   handleDoorTrigger();
 }, { passive: false });
 
-// ─── 起動 ──────────────────────────────────────────────────────────────────
 requestWakeLock();
 
 (function () {
