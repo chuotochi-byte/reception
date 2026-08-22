@@ -120,7 +120,7 @@ async function getDropboxToken() {
   if (stored && Date.now() < expiry) return stored;
 
   const refresh = localStorage.getItem('dbx_refresh_token');
-  if (!refresh) return CONFIG.DROPBOX_TOKEN;
+  if (!refresh) throw new Error('Dropbox未認証。setup.htmlから連携してください');
 
   const res = await fetch('https://api.dropboxapi.com/oauth2/token', {
     method: 'POST',
@@ -132,7 +132,7 @@ async function getDropboxToken() {
     }),
   });
   const json = await res.json();
-  if (!res.ok) return CONFIG.DROPBOX_TOKEN;
+  if (!res.ok) throw new Error('トークン更新失敗: ' + (json.error_description || json.error || res.status));
   localStorage.setItem('dbx_access_token', json.access_token);
   localStorage.setItem('dbx_token_expiry', Date.now() + (json.expires_in - 300) * 1000);
   return json.access_token;
