@@ -361,18 +361,26 @@ function showError(msg) {
   setTimeout(() => { if (el) el.remove(); }, 15000);
 }
 
+function setDoneStatus(msg) {
+  const el = document.getElementById('done-status');
+  if (el) el.textContent = msg;
+}
+
 async function uploadAndNotify(blob) {
+  setState(STATES.DONE);
   if (blob) {
     try {
-      await uploadToDropbox(blob);
+      const path = await uploadToDropbox(blob);
+      setDoneStatus('✅ Dropbox保存完了');
     } catch (err) {
+      setDoneStatus('❌ Dropboxエラー: ' + err.message);
       showError('Dropboxエラー: ' + err.message);
       downloadBlob(blob);
     }
   } else {
+    setDoneStatus('❌ 録音なし（カメラ・マイク許可を確認）');
     showError('録音なし：カメラ・マイクの許可を確認してください');
   }
-  setState(STATES.DONE);
   if (doneTimer) clearTimeout(doneTimer);
   doneTimer = setTimeout(goToIdle, CONFIG.DONE_RESET_MINUTES * 60 * 1000);
 }
