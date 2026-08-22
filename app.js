@@ -42,78 +42,6 @@ function speak(text) {
   } catch (e) {}
 }
 
-// ─── 空室ベースライン ─────────────────────────────────────────────────────
-const CHK_W = 64, CHK_H = 48;
-const EMPTY_THRESHOLD = 15;
-
-let chkCanvas = document.createElement('canvas');
-chkCanvas.width  = CHK_W;
-chkCanvas.height = CHK_H;
-let chkCtx = null;
-try { chkCtx = chkCanvas.getContext('2d', { willReadFrequently: true }); } catch(e) {}
-
-let emptyBaseline = null;
-
-async function captureEmptyBaseline() {
-  try {
-    const tmpStream = await navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: CHK_W }, height: { ideal: CHK_H } },
-      audio: false,
-    });
-    const tmpVideo = document.createElement('video');
-    tmpVideo.muted = true;
-    tmpVideo.srcObject = tmpStream;
-    await tmpVideo.play();
-    await new Promise(r => setTimeout(r, 2000));
-    if (chkCtx) {
-      chkCtx.drawImage(tmpVideo, 0, 0, CHK_W, CHK_H);
-      emptyBaseline = chkCtx.getImageData(0, 0, CHK_W, CHK_H);
-    }
-    tmpStream.getTracks().forEach(t => t.stop());
-    tmpVideo.srcObject = null;
-  } catch(e) {}
-}
-
-function isRoomEmpty() {
-  if (!emptyBaseline || !chkCtx) return false;
-  const v = document.getElementById('motion-video');
-  if (!v || v.readyState < 2) return false;
-  chkCtx.drawImage(v, 0, 0, CHK_W, CHK_H);
-  const curr = chkCtx.getImageData(0, 0, CHK_W, CHK_H);
-  let diff = 0;
-  for (let i = 0; i < curr.data.length; i += 4) {
-    diff += Math.abs(curr.data[i]   - emptyBaseline.data[i]);
-    diff += Math.abs(curr.data[i+1] - emptyBaseline.data[i+1]);
-    diff += Math.abs(curr.data[i+2] - emptyBaseline.data[i+2]);
-  }
-  diff /= (CHK_W * CHK_H * 3);
-  return diff < EMPTY_THRESHOLD;
-}
-
-// ─── スケジュール（1〜4分チェック＋5分強制）─────────────────────────────
-let checkTimers = [];
-let hardTimer   = null;
-
-function startSchedule() {
-  clearSchedule();
-  [1, 2, 3, 4].forEach(min => {
-    const t = setTimeout(() => {
-      if (currentState !== STATES.RECORDING) return;
-      if (isRoomEmpty()) stopAndSend();
-    }, min * 60 * 1000);
-    checkTimers.push(t);
-  });
-  hardTimer = setTimeout(() => {
-    if (currentState === STATES.RECORDING) stopAndSend();
-  }, 5 * 60 * 1000);
-}
-
-function clearSchedule() {
-  checkTimers.forEach(t => clearTimeout(t));
-  checkTimers = [];
-  if (hardTimer) { clearTimeout(hardTimer); hardTimer = null; }
-}
-
 // ─── カメラ・録画 ──────────────────────────────────────────────────────────
 let videoStream     = null;
 let videoRecorder   = null;
@@ -165,7 +93,7 @@ function releaseCamera() {
 
 async function stopAndSend() {
   if (currentState !== STATES.RECORDING) return;
-  clearSchedule();
+  if (hardTimer) { clearTimeout(hardTimer); hardTimer = null; }
   setState(STATES.UPLOADING);
 
   let blob = null;
@@ -272,6 +200,7 @@ async function uploadAndNotify(blob) {
 let announceTimer = null;
 let lastDoorTime  = 0;
 let doneTimer     = null;
+let hardTimer     = null;
 
 function onDoorOpened() {
   if (currentState !== STATES.IDLE) return;
@@ -281,8 +210,12 @@ function onDoorOpened() {
   lastDoorTime = Date.now();
   enterFullscreen();
   setState(STATES.RECORDING);
-  startSchedule();
   startVideoRecording();
+
+  // 5分で自動送信（安全弁）
+  hardTimer = setTimeout(() => {
+    if (currentState === STATES.RECORDING) stopAndSend();
+  }, 5 * 60 * 1000);
 
   announceTimer = setTimeout(() => {
     announceTimer = null;
@@ -294,6 +227,7 @@ function goToIdle() {
   try { speechSynthesis.cancel(); } catch(e) {}
   if (doneTimer)     { clearTimeout(doneTimer);     doneTimer     = null; }
   if (announceTimer) { clearTimeout(announceTimer); announceTimer = null; }
+  if (hardTimer)     { clearTimeout(hardTimer);     hardTimer     = null; }
   setState(STATES.IDLE);
 }
 
@@ -333,7 +267,6 @@ requestWakeLock();
   if (startEl) startEl.style.display = 'none';
   enterFullscreen();
   setState(STATES.IDLE);
-  captureEmptyBaseline();
 
   const bc = new BroadcastChannel('reception_door');
   bc.onmessage = (e) => {
