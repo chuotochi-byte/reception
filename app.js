@@ -42,12 +42,9 @@ function speak(text) {
   } catch (e) {}
 }
 
-// ─── 空室ベースライン（時間帯別・3スロット）──────────────────────────────
-// スロット 0: 朝（6〜13時）
-// スロット 1: 昼〜夕（13〜19時）
-// スロット 2: 夜（19〜6時）
+// ─── 空室ベースライン ─────────────────────────────────────────────────────
 const CHK_W = 64, CHK_H = 48;
-const EMPTY_THRESHOLD = 18; // 差がこれ以下なら空室と判定
+const EMPTY_THRESHOLD = 15;
 
 let chkCanvas = document.createElement('canvas');
 chkCanvas.width  = CHK_W;
@@ -55,50 +52,9 @@ chkCanvas.height = CHK_H;
 let chkCtx = null;
 try { chkCtx = chkCanvas.getContext('2d', { willReadFrequently: true }); } catch(e) {}
 
-function getTimeSlot() {
-  const h = new Date().getHours();
-  if (h >= 6  && h < 13) return 0; // 朝
-  if (h >= 13 && h < 19) return 1; // 昼〜夕
-  return 2;                          // 夜
-}
-
-function saveBaseline(imageData) {
-  const slot = getTimeSlot();
-  try {
-    localStorage.setItem('baseline_' + slot, JSON.stringify(Array.from(imageData.data)));
-    localStorage.setItem('baseline_' + slot + '_saved', new Date().toLocaleString('ja-JP'));
-  } catch(e) {}
-}
-
-function loadBaseline() {
-  // 現在の時間帯→隣のスロット→残りの順に探す
-  const slot = getTimeSlot();
-  const order = [slot, (slot + 1) % 3, (slot + 2) % 3];
-  for (const s of order) {
-    try {
-      const stored = localStorage.getItem('baseline_' + s);
-      if (!stored) continue;
-      const arr = JSON.parse(stored);
-      const imgData = chkCtx.createImageData(CHK_W, CHK_H);
-      imgData.data.set(new Uint8ClampedArray(arr));
-      return imgData;
-    } catch(e) {}
-  }
-  return null;
-}
-
 let emptyBaseline = null;
 
-function refreshBaseline() {
-  emptyBaseline = loadBaseline();
-}
-
-async function captureAndSaveBaseline(onDone) {
-  const overlay = document.createElement('div');
-  overlay.style = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:99999;font-size:20px;gap:16px;';
-  overlay.innerHTML = '<p>📷 ベースライン撮影中...</p>';
-  document.body.appendChild(overlay);
-
+async function captureEmptyBaseline() {
   try {
     const tmpStream = await navigator.mediaDevices.getUserMedia({
       video: { width: { ideal: CHK_W }, height: { ideal: CHK_H } },
@@ -108,76 +64,14 @@ async function captureAndSaveBaseline(onDone) {
     tmpVideo.muted = true;
     tmpVideo.srcObject = tmpStream;
     await tmpVideo.play();
-    await new Promise(r => setTimeout(r, 2000)); // カメラ安定待ち
-
-    chkCtx.drawImage(tmpVideo, 0, 0, CHK_W, CHK_H);
-    const imgData = chkCtx.getImageData(0, 0, CHK_W, CHK_H);
-    saveBaseline(imgData);
-    emptyBaseline = imgData;
-
+    await new Promise(r => setTimeout(r, 2000));
+    if (chkCtx) {
+      chkCtx.drawImage(tmpVideo, 0, 0, CHK_W, CHK_H);
+      emptyBaseline = chkCtx.getImageData(0, 0, CHK_W, CHK_H);
+    }
     tmpStream.getTracks().forEach(t => t.stop());
     tmpVideo.srcObject = null;
-
-    const slotNames = ['朝（6〜13時）', '昼〜夕（13〜19時）', '夜（19〜6時）'];
-    overlay.innerHTML = '<p>✅ 撮影完了</p><p style="font-size:14px">' + slotNames[getTimeSlot()] + 'のベースラインを保存しました</p>';
-    setTimeout(() => {
-      overlay.remove();
-      if (onDone) onDone();
-    }, 2000);
-  } catch(e) {
-    overlay.innerHTML = '<p>❌ カメラ起動失敗</p><p style="font-size:14px">' + e.message + '</p>';
-    setTimeout(() => overlay.remove(), 3000);
-  }
-}
-
-function showBaselineStatus() {
-  const slotNames = ['朝（6〜13時）', '昼〜夕（13〜19時）', '夜（19〜6時）'];
-  const currentSlot = getTimeSlot();
-
-  function buildHTML() {
-    let rows = '';
-    for (let s = 0; s < 3; s++) {
-      const saved = localStorage.getItem('baseline_' + s + '_saved');
-      const data  = localStorage.getItem('baseline_' + s);
-      const hasData = !!(data);
-      const isCurrent = s === currentSlot;
-      rows += `
-        <div style="background:rgba(255,255,255,0.1);border-radius:10px;padding:14px 16px;margin-bottom:12px;display:flex;align-items:center;gap:12px;">
-          <div style="flex:1;">
-            <div style="font-size:15px;font-weight:bold;">${isCurrent ? '▶ ' : ''}${slotNames[s]}</div>
-            <div style="font-size:13px;margin-top:4px;opacity:0.8;">
-              ${hasData ? '✅ 保存済み: ' + saved : '❌ 未撮影'}
-            </div>
-          </div>
-          ${hasData ? `<button onclick="deleteSlot(${s})" style="background:#e74c3c;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13px;cursor:pointer;">削除</button>` : ''}
-          <button onclick="captureSlot(${s})" style="background:#27ae60;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13px;cursor:pointer;">撮影</button>
-        </div>`;
-    }
-    return rows;
-  }
-
-  const overlay = document.createElement('div');
-  overlay.id = 'baseline-status-overlay';
-  overlay.style = 'position:fixed;inset:0;background:rgba(0,0,0,0.92);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:99999;padding:20px;';
-  overlay.innerHTML = `
-    <div style="max-width:420px;width:100%;">
-      <h2 style="text-align:center;margin-bottom:20px;font-size:18px;">📷 ベースライン管理</h2>
-      <div id="baseline-rows">${buildHTML()}</div>
-      <button onclick="document.getElementById('baseline-status-overlay').remove()" style="width:100%;margin-top:16px;background:rgba(255,255,255,0.2);color:#fff;border:none;border-radius:10px;padding:14px;font-size:15px;cursor:pointer;">閉じる</button>
-    </div>`;
-  document.body.appendChild(overlay);
-
-  window.deleteSlot = function(s) {
-    localStorage.removeItem('baseline_' + s);
-    localStorage.removeItem('baseline_' + s + '_saved');
-    refreshBaseline();
-    document.getElementById('baseline-rows').innerHTML = buildHTML();
-  };
-
-  window.captureSlot = function(s) {
-    overlay.remove();
-    captureAndSaveBaseline(() => showBaselineStatus());
-  };
+  } catch(e) {}
 }
 
 function isRoomEmpty() {
@@ -202,8 +96,6 @@ let hardTimer   = null;
 
 function startSchedule() {
   clearSchedule();
-  refreshBaseline(); // チェック開始時に現在の時間帯のベースラインを再読込
-
   [1, 2, 3, 4].forEach(min => {
     const t = setTimeout(() => {
       if (currentState !== STATES.RECORDING) return;
@@ -211,7 +103,6 @@ function startSchedule() {
     }, min * 60 * 1000);
     checkTimers.push(t);
   });
-
   hardTimer = setTimeout(() => {
     if (currentState === STATES.RECORDING) stopAndSend();
   }, 5 * 60 * 1000);
@@ -361,39 +252,18 @@ function showError(msg) {
   setTimeout(() => { if (el) el.remove(); }, 15000);
 }
 
-function setDoneStatus(msg) {
-  const el = document.getElementById('done-status');
-  if (el) el.textContent = msg;
-}
-
-function logResult(msg) {
-  try {
-    const entry = new Date().toLocaleString('ja-JP') + '　' + msg;
-    const prev  = JSON.parse(localStorage.getItem('upload_log') || '[]');
-    prev.unshift(entry);
-    localStorage.setItem('upload_log', JSON.stringify(prev.slice(0, 20)));
-  } catch(e) {}
-}
-
 async function uploadAndNotify(blob) {
-  setState(STATES.DONE);
   if (blob) {
     try {
-      const path = await uploadToDropbox(blob);
-      setDoneStatus('✅ Dropbox保存完了');
-      logResult('✅ 保存完了: ' + path);
+      await uploadToDropbox(blob);
     } catch (err) {
-      const msg = err.message;
-      setDoneStatus('❌ Dropboxエラー: ' + msg);
-      showError('Dropboxエラー: ' + msg);
-      logResult('❌ Dropboxエラー: ' + msg);
+      showError('Dropboxエラー: ' + err.message);
       downloadBlob(blob);
     }
   } else {
-    setDoneStatus('❌ 録音なし（カメラ・マイク許可を確認）');
     showError('録音なし：カメラ・マイクの許可を確認してください');
-    logResult('❌ 録音なし');
   }
+  setState(STATES.DONE);
   if (doneTimer) clearTimeout(doneTimer);
   doneTimer = setTimeout(goToIdle, CONFIG.DONE_RESET_MINUTES * 60 * 1000);
 }
@@ -463,9 +333,7 @@ requestWakeLock();
   if (startEl) startEl.style.display = 'none';
   enterFullscreen();
   setState(STATES.IDLE);
-
-  // 保存済みベースラインを読み込む
-  refreshBaseline();
+  captureEmptyBaseline();
 
   const bc = new BroadcastChannel('reception_door');
   bc.onmessage = (e) => {
@@ -473,34 +341,6 @@ requestWakeLock();
       setTimeout(() => onDoorOpened(), 1000);
     }
   };
-
-  // ?log=1 でアップロード履歴表示
-  if (new URLSearchParams(window.location.search).get('log') === '1') {
-    history.replaceState({}, '', location.pathname);
-    const logs = JSON.parse(localStorage.getItem('upload_log') || '[]');
-    const ov = document.createElement('div');
-    ov.style = 'position:fixed;inset:0;background:rgba(0,0,0,0.92);color:#fff;z-index:99999;padding:20px;overflow-y:auto;font-size:14px;';
-    ov.innerHTML = '<h2 style="margin-bottom:16px;">📋 送信ログ</h2>'
-      + (logs.length ? logs.map(l => '<p style="margin-bottom:10px;border-bottom:1px solid rgba(255,255,255,0.2);padding-bottom:8px;">' + l + '</p>').join('')
-                     : '<p>ログなし</p>')
-      + '<button onclick="this.parentNode.remove()" style="margin-top:20px;width:100%;padding:14px;background:rgba(255,255,255,0.2);color:#fff;border:none;border-radius:8px;font-size:15px;">閉じる</button>';
-    document.body.appendChild(ov);
-    return;
-  }
-
-  // ?baseline=status でベースライン確認・削除画面
-  if (new URLSearchParams(window.location.search).get('baseline') === 'status') {
-    history.replaceState({}, '', location.pathname);
-    showBaselineStatus();
-    return;
-  }
-
-  // ?baseline=1 でベースライン撮影モード
-  if (new URLSearchParams(window.location.search).get('baseline') === '1') {
-    history.replaceState({}, '', location.pathname);
-    captureAndSaveBaseline(null);
-    return;
-  }
 
   if (new URLSearchParams(window.location.search).get('door') === '1') {
     history.replaceState({}, '', location.pathname);
