@@ -366,20 +366,33 @@ function setDoneStatus(msg) {
   if (el) el.textContent = msg;
 }
 
+function logResult(msg) {
+  try {
+    const entry = new Date().toLocaleString('ja-JP') + '　' + msg;
+    const prev  = JSON.parse(localStorage.getItem('upload_log') || '[]');
+    prev.unshift(entry);
+    localStorage.setItem('upload_log', JSON.stringify(prev.slice(0, 20)));
+  } catch(e) {}
+}
+
 async function uploadAndNotify(blob) {
   setState(STATES.DONE);
   if (blob) {
     try {
       const path = await uploadToDropbox(blob);
       setDoneStatus('✅ Dropbox保存完了');
+      logResult('✅ 保存完了: ' + path);
     } catch (err) {
-      setDoneStatus('❌ Dropboxエラー: ' + err.message);
-      showError('Dropboxエラー: ' + err.message);
+      const msg = err.message;
+      setDoneStatus('❌ Dropboxエラー: ' + msg);
+      showError('Dropboxエラー: ' + msg);
+      logResult('❌ Dropboxエラー: ' + msg);
       downloadBlob(blob);
     }
   } else {
     setDoneStatus('❌ 録音なし（カメラ・マイク許可を確認）');
     showError('録音なし：カメラ・マイクの許可を確認してください');
+    logResult('❌ 録音なし');
   }
   if (doneTimer) clearTimeout(doneTimer);
   doneTimer = setTimeout(goToIdle, CONFIG.DONE_RESET_MINUTES * 60 * 1000);
@@ -460,6 +473,20 @@ requestWakeLock();
       setTimeout(() => onDoorOpened(), 1000);
     }
   };
+
+  // ?log=1 でアップロード履歴表示
+  if (new URLSearchParams(window.location.search).get('log') === '1') {
+    history.replaceState({}, '', location.pathname);
+    const logs = JSON.parse(localStorage.getItem('upload_log') || '[]');
+    const ov = document.createElement('div');
+    ov.style = 'position:fixed;inset:0;background:rgba(0,0,0,0.92);color:#fff;z-index:99999;padding:20px;overflow-y:auto;font-size:14px;';
+    ov.innerHTML = '<h2 style="margin-bottom:16px;">📋 送信ログ</h2>'
+      + (logs.length ? logs.map(l => '<p style="margin-bottom:10px;border-bottom:1px solid rgba(255,255,255,0.2);padding-bottom:8px;">' + l + '</p>').join('')
+                     : '<p>ログなし</p>')
+      + '<button onclick="this.parentNode.remove()" style="margin-top:20px;width:100%;padding:14px;background:rgba(255,255,255,0.2);color:#fff;border:none;border-radius:8px;font-size:15px;">閉じる</button>';
+    document.body.appendChild(ov);
+    return;
+  }
 
   // ?baseline=status でベースライン確認・削除画面
   if (new URLSearchParams(window.location.search).get('baseline') === 'status') {
