@@ -406,12 +406,10 @@ function goToIdle() {
   setState(STATES.IDLE);
 }
 
-async function onSendClick(e) {
-  if (e && e.cancelable) e.preventDefault();
+async function onSendClick() {
   if (currentState === STATES.RECORDING) await stopAndSend();
 }
 document.getElementById('btn-send').addEventListener('click', onSendClick);
-document.getElementById('btn-send').addEventListener('touchstart', onSendClick, { passive: false });
 
 let audioUnlocked = false;
 function ensureAudioUnlocked() {
