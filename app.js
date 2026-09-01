@@ -28,7 +28,15 @@ async function requestWakeLock() {
   } catch (e) {}
 }
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') requestWakeLock();
+  if (document.visibilityState === 'visible') {
+    requestWakeLock();
+    // 録画中にバックグラウンドから戻ってきたとき、カメラが止まっていれば再起動
+    if (currentState === STATES.RECORDING) {
+      if (!videoRecorder || videoRecorder.state === 'inactive') {
+        startVideoRecording();
+      }
+    }
+  }
 });
 
 function speak(text) {
