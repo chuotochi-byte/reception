@@ -17,16 +17,42 @@ function enterFullscreen() {
   if (fn) fn.call(el).catch(() => {});
 }
 
+// ─── WakeLock（強化版） ───────────────────────────────────────────────────
 let wakeLock = null;
 async function requestWakeLock() {
   if (!('wakeLock' in navigator)) return;
   try {
+    if (wakeLock && wakeLock.released === false) return; // すでに有効
     wakeLock = await navigator.wakeLock.request('screen');
     wakeLock.addEventListener('release', () => {
-      if (document.visibilityState === 'visible') requestWakeLock();
+      // 解放されたら100ms後に再取得
+      setTimeout(() => {
+        if (document.visibilityState === 'visible') requestWakeLock();
+      }, 100);
     });
-  } catch (e) {}
+  } catch (e) {
+    // 失敗しても5秒後に再試行
+    setTimeout(requestWakeLock, 5000);
+  }
 }
+
+// ─── サイレント音声ループ（スリープ防止） ────────────────────────────────
+let silentAudio = null;
+function startSilentAudio() {
+  if (silentAudio) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const buf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.loop   = true;
+    src.connect(ctx.destination);
+    src.start();
+    silentAudio = src;
+  } catch(e) {}
+}
+
+// ─── 画面復帰ハンドラ ─────────────────────────────────────────────────────
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
     requestWakeLock();
@@ -38,6 +64,18 @@ document.addEventListener('visibilitychange', () => {
     }
   }
 });
+
+// ─── ハートビート（30秒ごとに状態チェック） ──────────────────────────────
+setInterval(() => {
+  // WakeLock が落ちていたら再取得
+  if (document.visibilityState === 'visible') requestWakeLock();
+  // 録画中なのにレコーダーが停止していたら再起動
+  if (currentState === STATES.RECORDING) {
+    if (!videoRecorder || videoRecorder.state === 'inactive') {
+      startVideoRecording();
+    }
+  }
+}, 30 * 1000);
 
 function speak(text) {
   try {
@@ -253,6 +291,7 @@ function ensureAudioUnlocked() {
     speechSynthesis.speak(u);
     audioUnlocked = true;
   } catch(e) {}
+  startSilentAudio(); // スリープ防止ループ開始
 }
 
 function handleDoorTrigger() {
